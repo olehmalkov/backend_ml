@@ -1,6 +1,8 @@
 import logging
 import os
-from typing import Any, Dict, Optional
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
@@ -27,9 +29,23 @@ class _InMemoryCollection:
         return self._store.get(key) if isinstance(key, str) else None
 
     async def insert_one(self, document: Dict[str, Any]) -> None:
-        key = document.get("_id")
-        if isinstance(key, str):
-            self._store[key] = document
+        doc = dict(document)
+        key = doc.get("_id")
+        if not isinstance(key, str):
+            key = str(uuid.uuid4())
+            doc["_id"] = key
+        self._store[key] = doc
+
+    async def find(self, query: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        query = query or {}
+        results: List[Dict[str, Any]] = []
+        for document in self._store.values():
+            if all(document.get(field) == value for field, value in query.items()):
+                results.append(document)
+        return results
+
+    def clear(self) -> None:
+        self._store.clear()
 
 
 def _fallback_collection(reason: str, *, exc: Exception | None = None):
@@ -40,8 +56,8 @@ def _fallback_collection(reason: str, *, exc: Exception | None = None):
     return _InMemoryCollection()
 
 
-def _init_collection():
-    """Initialise the Mongo collection when configuration is available."""
+def _init_collection(collection_name: str):
+    """Initialise a Mongo collection when configuration is available."""
 
     if not MONGO_URL:
         return _fallback_collection("MONGO_URL is not set")
@@ -52,12 +68,13 @@ def _init_collection():
     try:
         client = AsyncIOMotorClient(MONGO_URL)
         db = client.feature_detection
-        return db.image_results
+        return getattr(db, collection_name)
     except Exception as exc:  # pragma: no cover - exercised on misconfiguration
         return _fallback_collection("Failed to initialise Mongo client", exc=exc)
 
 
-collection = _init_collection()
+collection = _init_collection("image_results")
+logs_collection = _init_collection("request_logs")
 
 
 async def get_image_result(image_hash):
@@ -71,3 +88,43 @@ async def save_image_result(image_hash, result):
 
     document = {"_id": image_hash, "result": result}
     await collection.insert_one(document)
+
+
+async def log_request(
+    image_hash: Optional[str], endpoint: str, cache_reused: bool
+) -> None:
+    """Persist metadata about handled API requests."""
+
+    document = {
+        "image_hash": image_hash,
+        "endpoint": endpoint,
+        "cache_reused": cache_reused,
+        "timestamp": datetime.now(timezone.utc),
+    }
+    await logs_collection.insert_one(document)
+
+
+async def get_logs(filter_query: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """Retrieve request log entries matching the provided filter."""
+
+    filter_query = filter_query or {}
+
+    if isinstance(logs_collection, _InMemoryCollection):
+        results = await logs_collection.find(filter_query)
+        return sorted(
+            results,
+            key=lambda entry: entry.get(
+                "timestamp", datetime.min.replace(tzinfo=timezone.utc)
+            ),
+        )
+
+    cursor = logs_collection.find(filter_query)
+    if hasattr(cursor, "sort"):
+        cursor = cursor.sort("timestamp", 1)
+    if hasattr(cursor, "to_list"):
+        return await cursor.to_list(length=None)
+
+    results: List[Dict[str, Any]] = []
+    async for item in cursor:  # pragma: no cover - cursor iteration fallback
+        results.append(item)
+    return results

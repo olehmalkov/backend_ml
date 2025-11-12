@@ -17,8 +17,7 @@ This service provides a REST API for feature detection in images. It uses a `Fea
    cp .env.example .env
    ```
 
-   > ⚠️ Never commit the populated `.env` file. The sample file demonstrates the required variables without exposing secrets.
-
+ 
 2. **Build and run the services using Docker Compose**
 
    ```bash
