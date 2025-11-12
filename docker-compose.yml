@@ -1,0 +1,22 @@
+version: '3.8'
+services:
+  api:
+    build: .
+    ports:
+      - "5000:5000"
+    depends_on:
+      - db
+    env_file:
+      - .env
+  db:
+    # Use the official MongoDB image from Docker Hub instead of the AWS ECR mirror.
+    # This ensures that the database container is always pulled directly from
+    # docker.io when deploying with Docker Compose.
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD}
+    env_file:
+      - .env

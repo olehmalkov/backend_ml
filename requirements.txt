@@ -1,0 +1,8 @@
+opencv-python
+aiohttp
+motor
+python-dotenv
+
+# Development and testing dependencies
+pytest
+pytest-aiohttp
