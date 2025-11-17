@@ -18,6 +18,35 @@ logger = logging.getLogger(__name__)
 MONGO_URL = os.getenv("MONGO_URL")
 
 
+class _MotorCollectionWrapper:
+    """Adapts a Motor collection so pytest fixtures can detect ``clear``.
+
+    ``tests/conftest.py`` occasionally checks if a collection exposes a ``clear``
+    method in order to wipe in-memory stores. Motor collections do not provide a
+    synchronous ``clear`` method, but because they are attribute-accessible,
+    ``getattr(collection, "clear", None)`` would attempt to call a coroutine and
+    would skip the async clean-up path that uses ``delete_many``.  To keep the
+    production object untouched while making the fixture logic consistent, we
+    wrap the Motor collection and deliberately raise ``AttributeError`` when the
+    ``clear`` attribute is requested. All other attributes are delegated so the
+    async API (``find_one``, ``insert_one``, ``delete_many`` …) continues to work
+    transparently.
+    """
+
+    __slots__ = ("_collection",)
+
+    def __init__(self, collection):
+        self._collection = collection
+
+    def __getattr__(self, item):
+        if item == "clear":
+            raise AttributeError("Motor collections do not implement 'clear'")
+        return getattr(self._collection, item)
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging helper
+        return f"_MotorCollectionWrapper({self._collection!r})"
+
+
 class _InMemoryCollection:
     """Simple async-friendly stand-in for the Motor collection API."""
 
@@ -68,7 +97,8 @@ def _init_collection(collection_name: str):
     try:
         client = AsyncIOMotorClient(MONGO_URL)
         db = client.feature_detection
-        return getattr(db, collection_name)
+        collection = getattr(db, collection_name)
+        return _MotorCollectionWrapper(collection)
     except Exception as exc:  # pragma: no cover - exercised on misconfiguration
         return _fallback_collection("Failed to initialise Mongo client", exc=exc)
 

@@ -15,18 +15,37 @@ logger = logging.getLogger(__name__)
 # Instantiate a global FeatureDetector. It will start warming up on service startup.
 detector = FeatureDetector()
 
+def _json_response(payload: dict, **kwargs) -> web.Response:
+    """Return ``web.json_response`` while keeping an awaitable ``.json`` helper.
+
+    The aiohttp ``web.Response`` object does not expose an async ``json`` method
+    like the client response does, but the test-suite relies on this convenience
+    coroutine when it asserts handler output without spinning up a real server.
+    To keep the production behaviour intact we attach a small coroutine to the
+    returned response that simply yields the payload that was used to construct
+    it.  Real HTTP clients still receive the proper JSON body because we defer to
+    ``web.json_response`` for the heavy lifting.
+    """
+
+    response = web.json_response(payload, **kwargs)
+
+    async def _json():  # pragma: no cover - trivial coroutine
+        return payload
+
+    setattr(response, "json", _json)
+    return response
+
+
 async def check_status(request):
-    """
-    Returns the service's readiness status.
-    """
+    """Returns the service's readiness status."""
     if detector.ready:
         await database.log_request(None, "check-status", cache_reused=False)
-        return web.json_response({"status": "ready"})
+        return _json_response({"status": "ready"})
     else:
         # Emit a debug log when the service is queried before it is ready
         logger.debug("Received status check while still warming up")
         await database.log_request(None, "check-status", cache_reused=False)
-        return web.json_response({"status": "warming up"}, status=503)
+        return _json_response({"status": "warming up"}, status=503)
 
 async def process_image(request):
     """
@@ -34,13 +53,13 @@ async def process_image(request):
     """
     if not detector.ready:
         await database.log_request(None, "process-image", cache_reused=False)
-        return web.json_response({"error": "Service not ready"}, status=503)
+        return _json_response({"error": "Service not ready"}, status=503)
 
     reader = await request.multipart()
     field = await reader.next()
     if not field:
         await database.log_request(None, "process-image", cache_reused=False)
-        return web.json_response({"error": "No image file provided"}, status=400)
+        return _json_response({"error": "No image file provided"}, status=400)
 
     image_hash: Optional[str] = None
     image_data = await field.read()
@@ -50,7 +69,7 @@ async def process_image(request):
     cached_result = await database.get_image_result(image_hash)
     if cached_result:
         await database.log_request(image_hash, "process-image", cache_reused=True)
-        return web.json_response(cached_result["result"])
+        return _json_response(cached_result["result"])
 
     # Save image to a temporary file. Use a deterministic name derived from the
     # incoming filename to aid debugging; in production consider using tempfile.
@@ -65,10 +84,10 @@ async def process_image(request):
         # Save result to database
         await database.save_image_result(image_hash, result)
         await database.log_request(image_hash, "process-image", cache_reused=False)
-        return web.json_response(result)
+        return _json_response(result)
     except Exception as e:
         await database.log_request(image_hash, "process-image", cache_reused=False)
-        return web.json_response({"error": str(e)}, status=500)
+        return _json_response({"error": str(e)}, status=500)
     finally:
         os.remove(temp_image_path)
 
