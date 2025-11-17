@@ -49,7 +49,7 @@ jobs:
 
       - name: Run unit tests
         env:
-          MONGO_URL: ${{ secrets.MONGO_URL || 'mongodb://admin:password@localhost:27017' }}
+          MONGO_URL: ${{ secrets.MONGO_URL || 'mongodb://admin:password@localhost:27017/?authSource=admin' }}
         run: pytest -q
 
   docker:
