@@ -4,6 +4,13 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+try:  # PyMongo is only needed to perform connection verification
+    from pymongo import MongoClient
+    from pymongo.errors import PyMongoError
+except Exception:  # pragma: no cover - PyMongo ships with Motor but guard anyway
+    MongoClient = None  # type: ignore[assignment]
+    PyMongoError = Exception  # type: ignore[assignment]
+
 from dotenv import load_dotenv
 
 try:  # pragma: no cover - the happy path is exercised in tests
@@ -85,6 +92,26 @@ def _fallback_collection(reason: str, *, exc: Exception | None = None):
     return _InMemoryCollection()
 
 
+def _mongo_connection_available(url: str) -> bool:
+    """Return ``True`` when a Mongo deployment can be contacted."""
+
+    if MongoClient is None:
+        return True
+
+    try:
+        client = MongoClient(url, serverSelectionTimeoutMS=2000)
+        client.admin.command("ping")
+        return True
+    except PyMongoError as exc:  # pragma: no cover - depends on environment
+        logger.warning("Mongo connection test failed", exc_info=exc)
+        return False
+    finally:
+        try:
+            client.close()
+        except Exception:  # pragma: no cover - defensive cleanup
+            pass
+
+
 def _init_collection(collection_name: str):
     """Initialise a Mongo collection when configuration is available."""
 
@@ -93,6 +120,9 @@ def _init_collection(collection_name: str):
 
     if AsyncIOMotorClient is None:
         return _fallback_collection("motor is not installed")
+
+    if not _mongo_connection_available(MONGO_URL):
+        return _fallback_collection("Failed to connect to Mongo using MONGO_URL")
 
     try:
         client = AsyncIOMotorClient(MONGO_URL)
