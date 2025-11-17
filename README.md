@@ -107,3 +107,35 @@ The Docker image published by the workflow is tagged using metadata derived from
   - `400 Bad Request`: If no image file is provided.
   - `503 Service Unavailable`: If the service is not ready.
   - `500 Internal Server Error`: If an error occurs during processing.
+
+Quick Demo Script
+
+# 1. Check service status
+Write-Host "`n=== 1. Service Status ===" -ForegroundColor Green
+curl.exe http://localhost:5000/check-status
+
+# 2. First image processing (no cache)
+Write-Host "`n=== 2. First Request (No Cache) ===" -ForegroundColor Yellow
+Measure-Command { curl.exe -X POST -F "image=@test.jpg" http://localhost:5000/process-image }
+
+# 3. Same image (with cache)
+Write-Host "`n=== 3. Second Request (With Cache) ===" -ForegroundColor Cyan
+Measure-Command { curl.exe -X POST -F "image=@test.jpg" http://localhost:5000/process-image }
+
+# 4. Different image (no cache)
+Write-Host "`n=== 4. Different Image (No Cache) ===" -ForegroundColor Yellow
+Measure-Command { curl.exe -X POST -F "image=@flower.jpg" http://localhost:5000/process-image }
+
+# 5. Same different image (with cache)
+Write-Host "`n=== 5. Same Image Again (With Cache) ===" -ForegroundColor Cyan
+Measure-Command { curl.exe -X POST -F "image=@flower.jpg" http://localhost:5000/process-image }
+
+Write-Host "`n=== Demo Complete! ===" -ForegroundColor Green
+
+ Cleanup After Demo
+
+ # Stop services
+docker-compose down
+
+# Remove volumes (optional)
+docker-compose down -v
