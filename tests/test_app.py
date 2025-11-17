@@ -47,6 +47,7 @@ def _clear_collection(collection, *, loop: asyncio.AbstractEventLoop) -> None:
 
     delete_many = getattr(collection, "delete_many", None)
     if delete_many is not None:
+        asyncio.set_event_loop(loop)
         loop.run_until_complete(delete_many({}))
 
 
