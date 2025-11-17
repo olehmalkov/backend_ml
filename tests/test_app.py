@@ -13,7 +13,7 @@ import app
 import database
 
 
-def test_app_imports():
+async def test_app_imports():
     """Ensure that the main application module can be imported without errors."""
 
     module = importlib.import_module("app")
@@ -22,13 +22,12 @@ def test_app_imports():
 
 
 @pytest.fixture(autouse=True)
-def _reset_collections():
-    """Clear in-memory collections between tests."""
-
-    if hasattr(database.collection, "clear"):
+async def _reset_collections():
+    """Clear collections between tests."""
+    if isinstance(database.collection, dict):
         database.collection.clear()
-    if hasattr(database.logs_collection, "clear"):
-        database.logs_collection.clear()
+    else:
+        await database.collection.delete_many({})
 
 
 @pytest_asyncio.fixture
